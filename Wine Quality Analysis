@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Jan 25 12:08:30 2024
+
+@author: aadharsmac
+"""
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import statsmodels.api as sm
+from math import sqrt
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import cross_val_score
+from sklearn.feature_selection import RFE
+from sklearn.feature_selection import RFECV
+from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import KFold
+from sklearn.feature_selection import VarianceThreshold
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.neighbors import KNeighborsRegressor
+
+
+
+#Data Frame and Preprocessing/Cleaning
+wine = pd.read_csv("/Users/aadharsmac/Desktop/Projects/Python/Wine/winequality-red.csv", sep=',')
+print(wine.head())
+print(wine.describe())
+print(wine.isnull().sum())
+#Histogram
+wine.hist(bins=15, figsize=(15, 10))
+plt.show()
+# correlation matrix
+corr = wine.corr()
+plt.figure(figsize=(12, 10))
+sns.heatmap(corr, annot=True, fmt=".2f", cmap='coolwarm', square=True, cbar_kws={"shrink": .5}, linewidths=.5)
+plt.show()
+
+#Train/Test
+X = wine.drop('quality', axis=1)  
+y = wine['quality']  # target variable
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Initialize the Linear Regression model
+lr_model = LinearRegression()
+# Train the model
+lr_model.fit(X_train, y_train)
+y_train_pred = lr_model.predict(X_train)
+y_test_pred = lr_model.predict(X_test)
+# Calculate metrics
+mae_train = mean_absolute_error(y_train, y_train_pred)
+mae_test = mean_absolute_error(y_test, y_test_pred)
+mae_diff = abs(mae_train - mae_test)
+mse_test = mean_squared_error(y_test, y_test_pred)
+rmse_test = sqrt(mse_test)
+mae_test = mean_absolute_error(y_test, y_test_pred)
+# Print the metrics
+print(f"Linear Regression - Train MAE: {mae_train:.3f}, Test MAE: {mae_test:.3f}")
+print(f"MAE Difference (Train - Test): {mae_diff:.3f}")
+print(f"Test MSE: {mse_test:.3f}, Test RMSE: {rmse_test:.3f}")
+
+#LR w/ feature selection
+# Remove near-zero variance features
+selector = VarianceThreshold(threshold=0.01)  # Adjust the threshold to your needs
+X_reduced = selector.fit_transform(X)
+# Getting the retained feature names
+retained_features = X.columns[selector.get_support(indices=True)]
+# Create DataFrame with retained features for further analysis
+X_reduced_df = pd.DataFrame(X_reduced, columns=retained_features)
+# Assuming 'wine' is the original DataFrame
+X_reduced_df_with_target = X_reduced_df.copy()
+X_reduced_df_with_target['quality'] = y
+# Calculate the correlation matrix
+corr_matrix_with_target = X_reduced_df_with_target.corr().abs()
+# Visualize the correlation matrix
+plt.figure(figsize=(12, 10))
+sns.heatmap(corr_matrix_with_target, annot=True, cmap='coolwarm')
+plt.title('Correlation Matrix with Target Variable')
+plt.show()
+# Drop the target variable from the features set
+X_reduced_final = X_reduced_df_with_target.drop('quality', axis=1)
+# Split the data again, this time with the modified features
+X_train_reduced, X_test_reduced, y_train, y_test = train_test_split(X_reduced_final, y, test_size=0.2, random_state=42)
+# Initialize and train the Linear Regression model
+lr_model_reduced = LinearRegression()
+lr_model_reduced.fit(X_train_reduced, y_train)
+# Make predictions on both train and test sets
+y_train_pred_reduced = lr_model_reduced.predict(X_train_reduced)
+y_test_pred_reduced = lr_model_reduced.predict(X_test_reduced)
+# Calculate metrics for training set
+mae_train_reduced = mean_absolute_error(y_train, y_train_pred_reduced)
+mse_train_reduced = mean_squared_error(y_train, y_train_pred_reduced)
+rmse_train_reduced = sqrt(mse_train_reduced)
+# Calculate metrics for testing set
+mae_test_reduced = mean_absolute_error(y_test, y_test_pred_reduced)
+mse_test_reduced = mean_squared_error(y_test, y_test_pred_reduced)
+rmse_test_reduced = sqrt(mse_test_reduced)
+# Calculate the difference in MAE between train and test sets
+mae_diff_reduced = abs(mae_train_reduced - mae_test_reduced)
+# Print the metrics
+print(f"Reduced Linear Regression - Train MAE: {mae_train_reduced:.3f}, Test MAE: {mae_test_reduced:.3f}, MAE Difference: {mae_diff_reduced:.3f}")
+print(f"Train MSE: {mse_train_reduced:.3f}, Train RMSE: {rmse_train_reduced:.3f}")
+print(f"Test MSE: {mse_test_reduced:.3f}, Test RMSE: {rmse_test_reduced:.3f}")
+
+#LR w/ backwards selection
+def backward_selection(X, y, initial_list, threshold_in=0.05):
+    included = list(initial_list)
+    while True:
+        changed = False
+        model = sm.OLS(y, sm.add_constant(pd.DataFrame(X[included]))).fit()
+        # use all coefficients except intercept
+        pvalues = model.pvalues.iloc[1:]
+        worst_pval = pvalues.max()  # worst p-value
+        if worst_pval > threshold_in:
+            worst_feature = pvalues.idxmax()
+            included.remove(worst_feature)
+            changed = True
+        if not changed:
+            break
+    return included
+
+selected_features = backward_selection(X_train, y_train, X_train.columns)
+# Update the training and testing sets with the selected features
+X_train_selected = X_train[selected_features]
+X_test_selected = X_test[selected_features]
+# Initialize and train the Linear Regression model
+lr_model_selected = sm.OLS(y_train, sm.add_constant(X_train_selected)).fit()
+# Make predictions
+y_train_pred_selected = lr_model_selected.predict(sm.add_constant(X_train_selected))
+y_test_pred_selected = lr_model_selected.predict(sm.add_constant(X_test_selected))
+# Evaluate the model
+mae_train_selected = mean_absolute_error(y_train, y_train_pred_selected)
+mae_test_selected = mean_absolute_error(y_test, y_test_pred_selected)
+mae_diff_selected = abs(mae_train_selected - mae_test_selected)
+mse_test_selected = mean_squared_error(y_test, y_test_pred_selected)
+rmse_test_selected = sqrt(mse_test_selected)
+# Show the plot
+plt.show()
+# Print the metrics
+print(f"Selected Features Linear Regression - Train MAE: {mae_train_selected:.3f}, Test MAE: {mae_test_selected:.3f}, MAE Difference: {mae_diff_selected:.3f}")
+print(f"Test MSE: {mse_test_selected:.3f}, Test RMSE: {rmse_test_selected:.3f}")
+r2_train_selected = lr_model_selected.rsquared
+print(f"Train R²: {r2_train_selected:.3f}")
+# To calculate R² for the test set, we can use the r2_score function from sklearn
+r2_test_selected = r2_score(y_test, y_test_pred_selected)
+print(f"Test R²: {r2_test_selected:.3f}")
+# Actual vs Predicted scatter plot
+plt.figure(figsize=(10, 6))
+sns.scatterplot(x=y_test, y=y_test_pred_selected, alpha=0.6)
+plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], '--r')
+# Adding titles and labels
+plt.title('Actual vs Predicted Quality', fontsize=16)
+plt.xlabel('Actual Quality', fontsize=14)
+plt.ylabel('Predicted Quality', fontsize=14)
+plt.grid(True)
+# Get the model's coefficients
+coefficients = lr_model_selected.params[1:]  # Exclude the intercept
+features = X_train_selected.columns
+coef_df = pd.DataFrame(coefficients, index=features, columns=['Coefficient'])
+# Plot feature importance
+coef_df.sort_values(by='Coefficient', ascending=False).plot(kind='bar', figsize=(12, 6))
+plt.title('Feature Importance (Linear Regression Coefficients)', fontsize=16)
+plt.ylabel('Coefficient Value', fontsize=14)
+plt.grid(True)
+plt.show()
+
+
+
+#LR w/ backwards selection and CV
+X_selected = X[selected_features]
+model = LinearRegression()
+# Perform cross-validation for MSE and convert to RMSE
+cv_mse_scores = cross_val_score(model, X_selected, y, cv=10, scoring='neg_mean_squared_error')
+cv_rmse_scores = np.sqrt(-cv_mse_scores)
+# Perform cross-validation for MAE
+cv_mae_scores = cross_val_score(model, X_selected, y, cv=10, scoring='neg_mean_absolute_error')
+cv_mae_scores = -cv_mae_scores
+# Calculate mean and standard deviation for RMSE and MAE
+mean_cv_rmse = cv_rmse_scores.mean()
+std_cv_rmse = cv_rmse_scores.std()
+mean_cv_mae = cv_mae_scores.mean()
+std_cv_mae = cv_mae_scores.std()
+print(f"Cross-validated RMSE: {mean_cv_rmse:.3f} (+/- {std_cv_rmse:.3f})")
+print(f"Cross-validated MAE: {mean_cv_mae:.3f} (+/- {std_cv_mae:.3f})")
+# Split the data again, this time with the selected features
+X_train_selected, X_test_selected, y_train, y_test = train_test_split(X_selected, y, test_size=0.2, random_state=42)
+# Train the model
+model.fit(X_train_selected, y_train)
+# Make predictions on both train and test sets
+y_train_pred = model.predict(X_train_selected)
+y_test_pred = model.predict(X_test_selected)
+# Calculate MAE for training and testing sets
+mae_train = mean_absolute_error(y_train, y_train_pred)
+mae_test = mean_absolute_error(y_test, y_test_pred)
+mse_train = mean_squared_error(y_train, y_train_pred)
+mse_test = mean_squared_error(y_test, y_test_pred)
+# Calculate the difference in MAE between train and test sets
+mae_diff = abs(mae_train - mae_test)
+mse_diff = abs(mse_train - mse_test)
+print(f"Train MAE: {mae_train:.3f}, Test MAE: {mae_test:.3f}, MAE Difference: {mae_diff:.3f}")
+print(f"Train MSE: {mse_train:.3f}, Test MSE: {mse_test:.3f}, MSE Difference: {mse_diff:.3f}")
+
+#Decision Tree tuned on complexity and depth
+# Set up the parameter grid
+param_grid = {'max_depth': range(1, 10)}
+# Initialize a Decision Tree Regressor
+dtree = DecisionTreeRegressor(random_state=42)
+# Initialize the GridSearchCV
+grid_search = GridSearchCV(dtree, param_grid, cv=10, scoring='neg_mean_squared_error', return_train_score=True)
+# Perform the grid search
+grid_search.fit(X_train, y_train)
+# Get the best estimator
+best_dtree = grid_search.best_estimator_
+# Predictions on train and test set
+y_train_pred = best_dtree.predict(X_train)
+y_test_pred = best_dtree.predict(X_test)
+# Calculate MSE, RMSE, and MAE for the training set
+mse_train = mean_squared_error(y_train, y_train_pred)
+rmse_train = sqrt(mse_train)
+mae_train = mean_absolute_error(y_train, y_train_pred)
+# Calculate MSE, RMSE, and MAE for the testing set
+mse_test = mean_squared_error(y_test, y_test_pred)
+rmse_test = sqrt(mse_test)
+mae_test = mean_absolute_error(y_test, y_test_pred)
+# Calculate the difference in MAE
+mae_diff = abs(mae_train - mae_test)
+# Print the results
+print(f"Decision Tree - Train MSE: {mse_train:.3f}, Train RMSE: {rmse_train:.3f}, Train MAE: {mae_train:.3f}")
+print(f"Decision Tree - Test MSE: {mse_test:.3f}, Test RMSE: {rmse_test:.3f}, Test MAE: {mae_test:.3f}")
+print(f"MAE Difference (Train - Test): {mae_diff:.3f}")
+
+#KNN
+knn = KNeighborsRegressor(n_neighbors=5)
+knn.fit(X_train, y_train)
+# Predictions
+y_train_pred = knn.predict(X_train)
+y_test_pred = knn.predict(X_test)
+# Calculate metrics for the training set
+mae_train = mean_absolute_error(y_train, y_train_pred)
+mse_train = mean_squared_error(y_train, y_train_pred)
+rmse_train = sqrt(mse_train)
+# Calculate metrics for the testing set
+mae_test = mean_absolute_error(y_test, y_test_pred)
+mse_test = mean_squared_error(y_test, y_test_pred)
+rmse_test = sqrt(mse_test)
+# Calculate the difference in MAE
+mae_diff = abs(mae_train - mae_test)
+# Print the metrics
+print(f"KNN - Train MAE: {mae_train:.3f}, Train MSE: {mse_train:.3f}, Train RMSE: {rmse_train:.3f}")
+print(f"KNN - Test MAE: {mae_test:.3f}, Test MSE: {mse_test:.3f}, Test RMSE: {rmse_test:.3f}")
+print(f"MAE Difference (Train - Test): {mae_diff:.3f}")
+
+#Random Forest w/o CV
+rf = RandomForestRegressor(random_state=42)
+rf.fit(X_train, y_train)
+# Predictions
+y_train_pred = rf.predict(X_train)
+y_test_pred = rf.predict(X_test)
+# Calculate metrics for the training set
+mae_train = mean_absolute_error(y_train, y_train_pred)
+mse_train = mean_squared_error(y_train, y_train_pred)
+rmse_train = sqrt(mse_train)
+# Calculate metrics for the testing set
+mae_test = mean_absolute_error(y_test, y_test_pred)
+mse_test = mean_squared_error(y_test, y_test_pred)
+rmse_test = sqrt(mse_test)
+# Calculate the difference in MAE
+mae_diff = abs(mae_train - mae_test)
+# Print the metrics
+print(f"Random Forest - Train MAE: {mae_train:.3f}, Train MSE: {mse_train:.3f}, Train RMSE: {rmse_train:.3f}")
+print(f"Random Forest - Test MAE: {mae_test:.3f}, Test MSE: {mse_test:.3f}, Test RMSE: {rmse_test:.3f}")
+print(f"MAE Difference (Train - Test): {mae_diff:.3f}")
+
+#RF w/ CV
+# Cross-validated MSE
+cv_mse = cross_val_score(rf, X, y, cv=10, scoring='neg_mean_squared_error')
+cv_mse_mean = -cv_mse.mean()
+cv_mse_std = cv_mse.std()
+# Cross-validated RMSE
+cv_rmse = np.sqrt(-cv_mse)
+cv_rmse_mean = cv_rmse.mean()
+cv_rmse_std = cv_rmse.std()
+# Cross-validated MAE
+cv_mae = cross_val_score(rf, X, y, cv=10, scoring='neg_mean_absolute_error')
+cv_mae_mean = -cv_mae.mean()
+cv_mae_std = cv_mae.std()
+print(f"Cross-validated MSE: {cv_mse_mean:.3f} (+/- {cv_mse_std:.3f})")
+print(f"Cross-validated RMSE: {cv_rmse_mean:.3f} (+/- {cv_rmse_std:.3f})")
+print(f"Cross-validated MAE: {cv_mae_mean:.3f} (+/- {cv_mae_std:.3f})")
+
+#
+# Make predictions on the training and test sets
+y_train_pred = rf.predict(X_train)
+y_test_pred = rf.predict(X_test)
+# Cross-validated MAE
+cv_mae = cross_val_score(rf, X, y, cv=10, scoring='neg_mean_absolute_error')
+cv_mae_mean = -cv_mae.mean()
+cv_mae_std = cv_mae.std()
+
+print(f"Cross-validated MAE: {cv_mae_mean:.3f} (+/- {cv_mae_std:.3f})")
+
+
+# Calculate MAE for the training and test sets
+mae_train = mean_absolute_error(y_train, y_train_pred)
+mae_test = mean_absolute_error(y_test, y_test_pred)
+# Calculate the difference in MAE
+mae_diff = abs(mae_train - mae_test)
+print(f"MAE on Training Set: {mae_train:.3f}")
+print(f"MAE on Test Set: {mae_test:.3f}")
+print(f"Difference in MAE (Train - Test): {mae_diff:.3f}")
+y_test_pred = rf.predict(X_test)
+test_mae = mean_absolute_error(y_test, y_test_pred)
+print(f"Test MAE: {test_mae:.3f}")
+
+#RF w/ backwards selection no CV
+# Get feature importances
+importances = rf.feature_importances_
+
+# Sort features by importance
+indices = np.argsort(importances)[::-1]
+
+# Decide how many features to keep - this threshold is arbitrary and can be adjusted
+keep_features = indices[:10]  # for example, keeping the top 10 features
+
+# Select these features for training and testing
+X_train_selected = X_train.iloc[:, keep_features]
+X_test_selected = X_test.iloc[:, keep_features]
+# Initialize the Random Forest model
+rf_selected = RandomForestRegressor(random_state=42)
+
+# Train the model with selected features
+rf_selected.fit(X_train_selected, y_train)
+# Predictions on train and test set
+y_train_pred = rf_selected.predict(X_train_selected)
+y_test_pred = rf_selected.predict(X_test_selected)
+
+# Calculate metrics for the training set
+mae_train = mean_absolute_error(y_train, y_train_pred)
+mse_train = mean_squared_error(y_train, y_train_pred)
+rmse_train = sqrt(mse_train)
+
+# Calculate metrics for the testing set
+mae_test = mean_absolute_error(y_test, y_test_pred)
+mse_test = mean_squared_error(y_test, y_test_pred)
+rmse_test = sqrt(mse_test)
+
+# Print the metrics
+print(f"Random Forest with Backward Selection - Train MAE: {mae_train:.3f}, Train MSE: {mse_train:.3f}, Train RMSE: {rmse_train:.3f}")
+print(f"Random Forest with Backward Selection - Test MAE: {mae_test:.3f}, Test MSE: {mse_test:.3f}, Test RMSE: {rmse_test:.3f}")
+
+#Final model - Linear Reg w/ backwards selection
+
+
+
+
+
+
+
