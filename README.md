@@ -1,1 +1,2 @@
-# Wine-Quality-Analysis
+# WineQualityAnalysis
+This report presents the methodology and findings from the development and evaluation of predictive models for estimating wine quality, undertaken to demonstrate my analytical andmachine learning competencies as a data analyst. The project involved an in-depth analysis of adataset containing physicochemical tests of wines, with the goal of developing a reliable model topredict quality ratings. Among the models considered, a Linear Regression model employingbackward selection was identified as the most suitable due to its balance of interpretability, simplicity, and accuracy. This model is recommended for its practicality and effectiveness, illustrating a successful application of data analysis in a real-world context.
